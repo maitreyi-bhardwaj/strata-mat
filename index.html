@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strata Mat — Pressure Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0d0f;
+    --surface: #16161a;
+    --border: #2a2a32;
+    --text: #e8e8f0;
+    --muted: #5a5a72;
+    --idle:     #3a3a4a;
+    --idle-txt: #8888a0;
+    --passive:  #1a3a5c;
+    --passive-txt: #5ab4f5;
+    --adaptive: #3d2a00;
+    --adaptive-txt: #f5a623;
+    --rigid:    #0d2e1a;
+    --rigid-txt: #3dd68c;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 24px 40px;
+    gap: 40px;
+  }
+
+  header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  header p {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* ── Zone grid ── */
+  .zones {
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+  }
+
+  .zone {
+    width: 180px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    padding: 28px 20px 24px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+    transition: background 0.35s ease, border-color 0.35s ease, transform 0.12s ease, box-shadow 0.35s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .zone:hover { transform: translateY(-2px); }
+  .zone:active { transform: translateY(1px); }
+
+  .zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  /* State colour application */
+  .zone[data-state="IDLE"]     { background: color-mix(in srgb, var(--idle) 60%, var(--surface)); border-color: #2a2a38; }
+  .zone[data-state="PASSIVE"]  { background: color-mix(in srgb, var(--passive) 70%, var(--surface)); border-color: #1e4a72; box-shadow: 0 0 28px -8px #5ab4f530; }
+  .zone[data-state="ADAPTIVE"] { background: color-mix(in srgb, var(--adaptive) 70%, var(--surface)); border-color: #7a5200; box-shadow: 0 0 28px -8px #f5a62340; }
+  .zone[data-state="RIGID"]    { background: color-mix(in srgb, var(--rigid) 70%, var(--surface)); border-color: #1a5c38; box-shadow: 0 0 28px -8px #3dd68c40; }
+
+  .zone-label {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .zone-id {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* Pressure dial */
+  .dial {
+    position: relative;
+    width: 100px;
+    height: 100px;
+  }
+  .dial svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+  .dial-track {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 6;
+    stroke-linecap: round;
+  }
+  .dial-fill {
+    fill: none;
+    stroke-width: 6;
+    stroke-linecap: round;
+    /* Short transition: smooth for rAF updates, still animates click jumps */
+    transition: stroke-dashoffset 0.07s linear, stroke 0.35s ease;
+    /* circumference for r=44: 2π×44 ≈ 276.46 */
+    stroke-dasharray: 276.46;
+  }
+  .dial-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+  }
+  .pressure-val {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    transition: color 0.35s ease;
+  }
+  .pressure-unit {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+
+  .state-badge {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: background 0.35s ease, color 0.35s ease;
+  }
+
+  .zone[data-state="IDLE"]     .state-badge { background: #24243060; color: var(--idle-txt); }
+  .zone[data-state="PASSIVE"]  .state-badge { background: #1a3a5c90; color: var(--passive-txt); }
+  .zone[data-state="ADAPTIVE"] .state-badge { background: #3d2a0090; color: var(--adaptive-txt); }
+  .zone[data-state="RIGID"]    .state-badge { background: #0d2e1a90; color: var(--rigid-txt); }
+
+  .zone[data-state="IDLE"]     .pressure-val, .zone[data-state="IDLE"]     .dial-fill { color: var(--idle-txt);     stroke: var(--idle-txt); }
+  .zone[data-state="PASSIVE"]  .pressure-val, .zone[data-state="PASSIVE"]  .dial-fill { color: var(--passive-txt);  stroke: var(--passive-txt); }
+  .zone[data-state="ADAPTIVE"] .pressure-val, .zone[data-state="ADAPTIVE"] .dial-fill { color: var(--adaptive-txt); stroke: var(--adaptive-txt); }
+  .zone[data-state="RIGID"]    .pressure-val, .zone[data-state="RIGID"]    .dial-fill { color: var(--rigid-txt);    stroke: var(--rigid-txt); }
+
+  /* ── Keyboard selection & press ── */
+  .zone.selected {
+    outline: 2px solid rgba(255, 255, 255, 0.45);
+    outline-offset: -2px;
+  }
+  /* pressing overrides hover/active transforms — placed after them in source order */
+  .zone.pressing {
+    transform: scale(0.96) translateY(4px);
+    transition-duration: 0.07s;
+  }
+
+  .key-hint {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+    text-align: center;
+  }
+  kbd {
+    font-family: inherit;
+    font-size: 9px;
+    background: #28283a;
+    border: 1px solid #404058;
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #9090b8;
+  }
+
+  /* ── Algorithm panel ── */
+  .algo-panel {
+    width: 100%;
+    max-width: 600px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .algo-header {
+    padding: 14px 20px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .algo-header::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--rigid-txt);
+    box-shadow: 0 0 6px var(--rigid-txt);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .algo-lines {
+    padding: 8px 0;
+  }
+  .algo-line {
+    padding: 10px 20px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background 0.25s ease;
+    border-left: 3px solid transparent;
+    cursor: default;
+  }
+  .algo-line .condition { color: var(--muted); flex: 1; }
+  .algo-line .arrow { color: var(--muted); font-size: 10px; }
+  .algo-line .outcome {
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 5px;
+  }
+
+  .algo-line[data-for="IDLE"]     .outcome { color: var(--idle-txt);     background: #24243060; }
+  .algo-line[data-for="PASSIVE"]  .outcome { color: var(--passive-txt);  background: #1a3a5c60; }
+  .algo-line[data-for="ADAPTIVE"] .outcome { color: var(--adaptive-txt); background: #3d2a0060; }
+  .algo-line[data-for="RIGID"]    .outcome { color: var(--rigid-txt);    background: #0d2e1a60; }
+
+  .algo-line.active[data-for="IDLE"]     { background: #24243040; border-left-color: var(--idle-txt); }
+  .algo-line.active[data-for="PASSIVE"]  { background: #1a3a5c30; border-left-color: var(--passive-txt); }
+  .algo-line.active[data-for="ADAPTIVE"] { background: #3d2a0040; border-left-color: var(--adaptive-txt); }
+  .algo-line.active[data-for="RIGID"]    { background: #0d2e1a40; border-left-color: var(--rigid-txt); }
+
+  .algo-line.active .condition { color: var(--text); }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  }
+  .btn:hover { background: #20202a; border-color: #404055; }
+  .btn:active { transform: scale(0.97); }
+  .btn.preset { border-color: #303048; }
+  .btn.preset:hover { border-color: #5a5a88; }
+  .btn.clear { border-color: #3a2020; color: #aa6666; }
+  .btn.clear:hover { background: #1e1212; border-color: #7a3030; }
+
+  .sep {
+    width: 1px; height: 24px;
+    background: var(--border);
+  }
+
+  footer {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Strata Mat</h1>
+  <p>Pressure-Responsive Floor Mat · Adaptive Stiffness System · 2040</p>
+</header>
+
+<div class="zones" id="zones">
+  <!-- zones injected by JS -->
+</div>
+
+<div class="algo-panel">
+  <div class="algo-header">Decision Engine — Stiffness State</div>
+  <div class="algo-lines" id="algoLines">
+    <div class="algo-line" data-for="IDLE">
+      <span class="condition">IF pressure = 0 kPa</span>
+      <span class="arrow">→</span>
+      <span class="outcome">IDLE</span>
+    </div>
+    <div class="algo-line" data-for="PASSIVE">
+      <span class="condition">IF 0 &lt; pressure &lt; 15 kPa</span>
+      <span class="arrow">→</span>
+      <span class="outcome">PASSIVE</span>
+    </div>
+    <div class="algo-line" data-for="ADAPTIVE">
+      <span class="condition">IF 15 ≤ pressure ≤ 40 kPa</span>
+      <span class="arrow">→</span>
+      <span class="outcome">ADAPTIVE</span>
+    </div>
+    <div class="algo-line" data-for="RIGID">
+      <span class="condition">IF pressure &gt; 40 kPa</span>
+      <span class="arrow">→</span>
+      <span class="outcome">RIGID</span>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn preset" onclick="applyPreset('seated')">Seated Posture</button>
+  <button class="btn preset" onclick="applyPreset('kneeling')">Kneeling Posture</button>
+  <div class="sep"></div>
+  <button class="btn clear" onclick="clearAll()">Clear All</button>
+</div>
+
+<footer>Keys 1 / 2 / 3 — select zone &nbsp;·&nbsp; Hold SPACE — apply pressure &nbsp;·&nbsp; Release — decompress &nbsp;·&nbsp; Click — +10 kPa step</footer>
+
+<script>
+  const ZONES = [
+    { id: 'A', label: 'Sit-Bone', bodyPart: 'Zone A', key: '1' },
+    { id: 'B', label: 'Knee',     bodyPart: 'Zone B', key: '2' },
+    { id: 'C', label: 'Shin',     bodyPart: 'Zone C', key: '3' },
+  ];
+
+  const MAX         = 60;
+  const STEP        = 10;
+  const RISE_RATE   = 28;   // kPa per second while space held
+  const FALL_RATE   = 12;   // kPa per second on release (slow decompression)
+  const CIRCUMFERENCE = 2 * Math.PI * 44; // ≈ 276.46
+
+  // Float pressure values; display is Math.round(pressure[id])
+  const pressure = { A: 0, B: 0, C: 0 };
+
+  // Keyboard state
+  let activeZone = 'A';
+  let isHolding  = false;   // spacebar currently down
+  let isDraining = false;   // spacebar just released, draining to 0
+  let lastTime   = null;
+  let rafId      = null;
+
+  // ── Classification ────────────────────────────────────────────
+  function classify(kpa) {
+    if (kpa === 0)  return 'IDLE';
+    if (kpa < 15)   return 'PASSIVE';
+    if (kpa <= 40)  return 'ADAPTIVE';
+    return 'RIGID';
+  }
+
+  // ── DOM ───────────────────────────────────────────────────────
+  function buildZones() {
+    const container = document.getElementById('zones');
+    ZONES.forEach(z => {
+      const el = document.createElement('div');
+      el.className = 'zone';
+      el.dataset.zone = z.id;
+      el.dataset.state = 'IDLE';
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', `${z.label} zone`);
+      el.innerHTML = `
+        <span class="zone-label">${z.label}</span>
+        <div class="dial">
+          <svg viewBox="0 0 100 100">
+            <circle class="dial-track" cx="50" cy="50" r="44"/>
+            <circle class="dial-fill" cx="50" cy="50" r="44"
+              stroke-dasharray="${CIRCUMFERENCE}"
+              stroke-dashoffset="${CIRCUMFERENCE}"/>
+          </svg>
+          <div class="dial-center">
+            <span class="pressure-val">0</span>
+            <span class="pressure-unit">kPa</span>
+          </div>
+        </div>
+        <div class="state-badge">IDLE</div>
+        <span class="zone-id">${z.bodyPart}</span>
+        <span class="key-hint">Press <kbd>${z.key}</kbd> to select</span>
+      `;
+      // Click: select this zone and add a discrete step
+      el.addEventListener('click', () => {
+        setActiveZone(z.id);
+        if (pressure[z.id] < MAX) {
+          pressure[z.id] = Math.min(pressure[z.id] + STEP, MAX);
+          updateZoneEl(z.id);
+          highlightAlgo();
+        }
+      });
+      container.appendChild(el);
+    });
+  }
+
+  function setActiveZone(id) {
+    activeZone = id;
+    document.querySelectorAll('.zone').forEach(el => {
+      const zid = el.dataset.zone;
+      el.classList.toggle('selected', zid === id);
+      // Update hint text for each zone
+      const hint = el.querySelector('.key-hint');
+      const z = ZONES.find(z => z.id === zid);
+      if (zid === id) {
+        hint.innerHTML = `Hold <kbd>SPACE</kbd> to press`;
+      } else {
+        hint.innerHTML = `Press <kbd>${z.key}</kbd> to select`;
+      }
+    });
+  }
+
+  function updateZoneEl(id) {
+    const kpa      = pressure[id];
+    const displayed = Math.round(kpa);
+    const stateStr = classify(kpa);
+    const el       = document.querySelector(`[data-zone="${id}"]`);
+
+    el.dataset.state = stateStr;
+    el.querySelector('.pressure-val').textContent = displayed;
+    el.querySelector('.state-badge').textContent  = stateStr;
+
+    const offset = CIRCUMFERENCE - (kpa / MAX) * CIRCUMFERENCE;
+    el.querySelector('.dial-fill').style.strokeDashoffset = offset;
+  }
+
+  function highlightAlgo() {
+    const states   = Object.values(pressure).map(classify);
+    const priority = ['RIGID', 'ADAPTIVE', 'PASSIVE', 'IDLE'];
+    const dominant = priority.find(s => states.includes(s));
+    document.querySelectorAll('.algo-line').forEach(line => {
+      line.classList.toggle('active', line.dataset.for === dominant);
+    });
+  }
+
+  // ── Animation loop ────────────────────────────────────────────
+  function loop(ts) {
+    rafId = requestAnimationFrame(loop);
+
+    if (lastTime === null) { lastTime = ts; return; }
+    const dt = Math.min((ts - lastTime) / 1000, 0.1); // seconds, capped at 100 ms
+    lastTime = ts;
+
+    let changed = false;
+
+    if (isHolding) {
+      if (pressure[activeZone] < MAX) {
+        pressure[activeZone] = Math.min(pressure[activeZone] + RISE_RATE * dt, MAX);
+        changed = true;
+      }
+    } else if (isDraining) {
+      if (pressure[activeZone] > 0) {
+        pressure[activeZone] = Math.max(pressure[activeZone] - FALL_RATE * dt, 0);
+        if (pressure[activeZone] === 0) isDraining = false;
+        changed = true;
+      } else {
+        isDraining = false;
+      }
+    }
+
+    if (changed) {
+      updateZoneEl(activeZone);
+      highlightAlgo();
+    }
+  }
+
+  // ── Keyboard handlers ─────────────────────────────────────────
+  const KEY_TO_ZONE = { '1': 'A', '2': 'B', '3': 'C' };
+
+  document.addEventListener('keydown', e => {
+    // Zone selection
+    if (KEY_TO_ZONE[e.key]) {
+      setActiveZone(KEY_TO_ZONE[e.key]);
+      return;
+    }
+    // Spacebar — start pressing
+    if (e.code === 'Space' && !e.repeat) {
+      e.preventDefault();
+      isHolding  = true;
+      isDraining = false;
+      document.querySelector(`[data-zone="${activeZone}"]`).classList.add('pressing');
+    }
+  });
+
+  document.addEventListener('keyup', e => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      isHolding  = false;
+      isDraining = pressure[activeZone] > 0; // only drain if there's something there
+      document.querySelector(`[data-zone="${activeZone}"]`).classList.remove('pressing');
+    }
+  });
+
+  // ── Presets & clear ───────────────────────────────────────────
+  function applyPreset(name) {
+    // Stop any live interaction
+    isHolding  = false;
+    isDraining = false;
+    document.querySelectorAll('.zone').forEach(el => el.classList.remove('pressing'));
+
+    const presets = {
+      seated:   { A: 40, B: 20, C: 10 },
+      kneeling: { A: 10, B: 40, C: 40 },
+    };
+    Object.assign(pressure, presets[name]);
+    ZONES.forEach(z => updateZoneEl(z.id));
+    highlightAlgo();
+  }
+
+  function clearAll() {
+    isHolding  = false;
+    isDraining = false;
+    document.querySelectorAll('.zone').forEach(el => el.classList.remove('pressing'));
+    ZONES.forEach(z => { pressure[z.id] = 0; });
+    ZONES.forEach(z => updateZoneEl(z.id));
+    highlightAlgo();
+  }
+
+  // ── Init ──────────────────────────────────────────────────────
+  buildZones();
+  ZONES.forEach(z => updateZoneEl(z.id));
+  highlightAlgo();
+  setActiveZone('A');
+  rafId = requestAnimationFrame(loop);
+</script>
+</body>
+</html>
