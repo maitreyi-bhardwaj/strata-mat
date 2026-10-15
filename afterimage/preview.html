@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retinal Bloom Preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #9aa; font: 12px monospace; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,.65); padding: 8px 10px; border: 1px solid #223; }
+  #panel label { display: grid; grid-template-columns: 130px 140px 44px; align-items: center; gap: 6px; }
+  #panel.hidden { display: none; }
+  #err { color: #f66; white-space: pre; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel"><div id="sliders"></div><div>[h] hide panel · aspect via ?aspect=12</div><div id="err"></div></div>
+<script>
+// Usage: serve this folder (python3 -m http.server) and open preview.html.
+// Query params: ?aspect=12 (letterbox to a panorama ratio), ?t=30 (freeze time), ?scale=0.5 (render scale)
+const params = new URLSearchParams(location.search);
+const U = {
+  u_speed: [0.35, 0, 2], u_frequency: [1.4, 0.5, 4], u_glow_intensity: [1.2, 0, 3],
+  u_warp: [1.6, 0, 3], u_afterimage: [0.65, 0, 1], u_trail_lag: [0.45, 0.05, 1.5],
+  u_micro_detail: [0.5, 0, 1], u_micro_scale: [18, 6, 64], u_hue_shift: [0, 0, 1],
+  u_phase: [1, 0, 1], u_center_weight: [0.6, 0, 1], u_mouse_radius: [0.35, 0.05, 1],
+};
+for (const k in U) if (params.has(k)) U[k][0] = parseFloat(params.get(k));
+
+const sliders = document.getElementById('sliders');
+for (const k in U) {
+  const [v, lo, hi] = U[k];
+  const l = document.createElement('label');
+  l.innerHTML = `<span>${k}</span><input type=range min=${lo} max=${hi} step=${(hi-lo)/200} value=${v}><span>${v}</span>`;
+  const [ , input, out] = l.children;
+  input.oninput = () => { U[k][0] = parseFloat(input.value); out.textContent = input.value; };
+  sliders.appendChild(l);
+}
+addEventListener('keydown', e => { if (e.key === 'h') document.getElementById('panel').classList.toggle('hidden'); });
+
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { preserveDrawingBuffer: true });
+const VS = 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+fetch('retinal_bloom.frag').then(r => r.text()).then(fs => {
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const loc = n => gl.getUniformLocation(prog, n);
+
+  let mouse = [0, 0];
+  const scale = parseFloat(params.get('scale') || '1');
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    mouse = [(e.clientX - r.left) / r.width * canvas.width, (1 - (e.clientY - r.top) / r.height) * canvas.height];
+  });
+  const fixedT = params.has('t') ? parseFloat(params.get('t')) : null;
+  const t0 = performance.now();
+
+  function frame() {
+    const aspect = parseFloat(params.get('aspect') || '0');
+    const w = Math.floor(innerWidth * scale);
+    const h = Math.floor((aspect ? innerWidth / aspect : innerHeight) * scale);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      canvas.style.height = (aspect ? innerWidth / aspect : innerHeight) + 'px';
+      if (!mouse[0]) mouse = [w / 2, h / 2];
+    }
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(loc('u_resolution'), w, h);
+    gl.uniform1f(loc('u_time'), fixedT ?? (performance.now() - t0) / 1000);
+    gl.uniform2f(loc('u_mouse'), mouse[0], mouse[1]);
+    for (const k in U) gl.uniform1f(loc(k), U[k][0]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (fixedT === null) requestAnimationFrame(frame); else document.title = 'rendered';
+  }
+  frame();
+}).catch(e => { document.getElementById('err').textContent = e.message; document.title = 'error'; });
+</script>
+</body>
+</html>
