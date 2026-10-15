@@ -308,7 +308,7 @@ void main() {
     col = max(col - 0.004, 0.0);
 
     // Abyssal ambient: a whisper of deep blue so blacks feel volumetric.
-    // Linear 0.0012 ≈ 8/255 after gamma — just above projector black.
+    // Blue 0.0012 linear ≈ 14/255 after tonemap + gamma — just above projector black.
     col += vec3(0.0004, 0.0006, 0.0012) * centre;
 
     // --- 5.9 Tone mapping ---------------------------------------------------

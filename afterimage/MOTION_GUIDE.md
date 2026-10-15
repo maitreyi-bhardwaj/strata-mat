@@ -185,6 +185,6 @@ is ≥ 3 s.
   3 × 7, micro 1). On a single GPU at very high resolution, render at
   0.5× scale and upscale, or set `GHOSTS` to 2. Measure on the real playback
   hardware; this estimate has not been benchmarked.
-* **Black level.** The void is held at about 8/255 with dithering against
+* **Black level.** The void is held at about 14/255 (blue channel, darker in red/green) with dithering against
   banding. If the projectors raise black visibly, lower the ambient term in
   §5.8 of the shader.
