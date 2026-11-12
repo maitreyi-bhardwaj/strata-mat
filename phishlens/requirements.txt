@@ -1,0 +1,10 @@
+# Core application (required)
+streamlit>=1.40
+pandas>=2.0
+
+# Optional integrations (the app runs without them)
+requests>=2.31        # VirusTotal lookups
+anthropic>=2.0        # AI explanation layer
+
+# Development
+pytest>=8.0
